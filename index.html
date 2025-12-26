@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NoteStream - Split View</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            overflow: hidden;
+        }
+
+        .editor-content:empty:before {
+            content: attr(data-placeholder);
+            color: #94a3b8;
+            cursor: text;
+        }
+
+        .editor-content {
+            outline: none;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+
+        /* Celestial Animation Styles */
+        .celestial-stage {
+            position: fixed;
+            top: 0.75rem; /* Slightly lower for better alignment */
+            left: 0.75rem; 
+            width: 70px; 
+            height: 140px;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 50; /* Above panels, but behind potential modals */
+        }
+
+        .celestial-body {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* Light Mode: Sun is up, Moon is down */
+        .sun-body { top: 0; opacity: 1; filter: drop-shadow(0 0 15px rgba(251, 191, 36, 0.4)); }
+        .moon-body { top: 140px; opacity: 0; }
+
+        /* Dark Mode: Moon is up, Sun is down */
+        .dark .sun-body { top: 140px; opacity: 0; }
+        .dark .moon-body { top: 0; opacity: 1; filter: drop-shadow(0 0 15px rgba(148, 163, 184, 0.3)); }
+
+        /* Drag and Drop Styling */
+        .dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+            border: 2px dashed #3b82f6 !important;
+        }
+
+        .drag-over {
+            border-top: 4px solid #3b82f6 !important;
+        }
+
+        .view-transition {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.5s ease;
+        }
+
+        @media (max-width: 768px) {
+            .show-editor .list-panel { transform: translateX(-100%); }
+            .show-editor .editor-panel { transform: translateX(0); }
+            .editor-panel { transform: translateX(100%); position: absolute; inset: 0; }
+            /* Mobile header needs extra padding for the large icon */
+            .list-panel header, .mobile-editor-header { padding-left: 5.5rem; }
+        }
+    </style>
+</head>
+<body class="bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 h-screen transition-colors duration-500">
+
+    <!-- Celestial Animation Container -->
+    <div class="celestial-stage">
+        <!-- Sun (Size 14x14 / 56px) -->
+        <div class="celestial-body sun-body">
+            <svg class="w-14 h-14 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 7a5 5 0 100 10 5 5 0 000-10zM2 13h2a1 1 0 100-2H2a1 1 0 100 2zm18 0h2a1 1 0 100-2h-2a1 1 0 100 2zM11 2v2a1 1 0 102 0V2a1 1 0 10-2 0zm0 18v2a1 1 0 102 0v-2a1 1 0 10-2 0zM5.99 4.58a1 1 0 10-1.41 1.41l1.41 1.41a1 1 0 101.41-1.41L5.99 4.58zm12.02 12.02a1 1 0 10-1.41 1.41l1.41 1.41a1 1 0 101.41-1.41l-1.41-1.41zm-12.02 0l-1.41 1.41a1 1 0 101.41 1.41l1.41-1.41a1 1 0 10-1.41-1.41zM18.01 4.58l1.41 1.41a1 1 0 10-1.41 1.41l-1.41-1.41a1 1 0 101.41-1.41z"></path>
+            </svg>
+        </div>
+        <!-- Moon (Size 14x14 / 56px) -->
+        <div class="celestial-body moon-body">
+            <svg class="w-14 h-14 text-slate-300" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+            </svg>
+        </div>
+    </div>
+
+    <div id="appContainer" class="flex h-full w-full overflow-hidden relative">
+        
+        <!-- Sidebar / List Panel -->
+        <aside class="list-panel w-full md:w-80 lg:w-96 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-slate-50 dark:bg-slate-900 shrink-0 view-transition z-10">
+            <!-- Header with specific left padding to accommodate the icon -->
+            <header class="p-4 pl-20 md:pl-20 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">NoteStream</h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <!-- Theme Toggle -->
+                    <button id="themeToggle" class="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative z-50">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path>
+                        </svg>
+                    </button>
+                    <button id="addNoteBtn" class="p-2 bg-blue-600 dark:bg-blue-500 text-white rounded-full hover:bg-blue-700 dark:hover:bg-blue-600 shadow-lg shadow-blue-500/20 active:scale-90 transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Search -->
+            <div class="p-4 shrink-0">
+                <div class="relative">
+                    <input type="text" id="searchInput" placeholder="Search notes..." 
+                           class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 dark:text-slate-100 transition-all">
+                    <svg class="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Notes List -->
+            <div id="notesContainer" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+                <!-- Notes injected here -->
+            </div>
+            
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 text-center">
+                <button id="deleteAllBtn" class="text-[10px] uppercase tracking-widest font-bold text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                    Clear All Storage
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Editor Panel -->
+        <main id="editorPanel" class="editor-panel flex-1 flex flex-col bg-white dark:bg-slate-950 view-transition z-20">
+            <!-- Mobile Header with same padding logic -->
+            <div class="mobile-editor-header md:hidden p-4 pl-20 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 shrink-0">
+                <button id="backToListBtn" class="p-2 -ml-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+                    <svg class="w-5 h-5 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <span class="font-semibold text-slate-700 dark:text-slate-200">Editor</span>
+            </div>
+
+            <div id="noNoteSelected" class="flex-1 flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 p-10 text-center">
+                <div class="w-20 h-20 bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                </div>
+                <p class="text-lg font-medium">Select a note to view or edit</p>
+                <p class="text-sm">Your changes are saved automatically</p>
+            </div>
+
+            <div id="activeEditor" class="hidden flex-1 flex flex-col overflow-hidden">
+                <!-- WYSIWYG Toolbar -->
+                <div class="px-4 py-2 flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0 overflow-x-auto no-scrollbar relative">
+                    <button onclick="formatDoc('bold')" class="p-2 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm rounded text-slate-600 dark:text-slate-300 font-bold" title="Bold">B</button>
+                    <button onclick="formatDoc('italic')" class="p-2 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm rounded text-slate-600 dark:text-slate-300 italic" title="Italic">I</button>
+                    <button onclick="formatDoc('insertUnorderedList')" class="p-2 hover:bg-white dark:hover:bg-slate-800 hover:shadow-sm rounded text-slate-600 dark:text-slate-300" title="List">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M5 11.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm-3 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm0 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>
+                    </button>
+                    <div class="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-2"></div>
+                    <div class="flex gap-2">
+                        <button data-color="bg-white" class="color-opt w-6 h-6 rounded-full border border-slate-300 dark:border-slate-600 bg-white"></button>
+                        <button data-color="bg-yellow-50" class="color-opt w-6 h-6 rounded-full border border-slate-200 dark:border-slate-700 bg-yellow-50 dark:bg-yellow-900/20"></button>
+                        <button data-color="bg-blue-50" class="color-opt w-6 h-6 rounded-full border border-slate-200 dark:border-slate-700 bg-blue-50 dark:bg-blue-900/20"></button>
+                        <button data-color="bg-green-50" class="color-opt w-6 h-6 rounded-full border border-slate-200 dark:border-slate-700 bg-green-50 dark:bg-green-900/20"></button>
+                    </div>
+                    <div class="ml-auto flex items-center gap-1">
+                        <button id="pinActiveNoteBtn" class="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Pin Note">
+                            <svg id="pinIconActive" class="w-5 h-5 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.921-.755 1.688-1.54 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.784.57-1.838-.197-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                            </svg>
+                        </button>
+                        <button id="deleteActiveNoteBtn" class="p-2 text-red-400 dark:text-red-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Editor Scroll Area -->
+                <div id="editorWorkspace" class="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar transition-colors">
+                    <div class="max-w-3xl mx-auto">
+                        <input type="text" id="noteTitleInput" placeholder="Note Title" class="w-full text-3xl font-bold bg-transparent border-none focus:outline-none placeholder:text-slate-200 dark:placeholder:text-slate-800 mb-6 text-slate-900 dark:text-slate-50">
+                        <div id="noteContentInput" contenteditable="true" data-placeholder="Start your masterpiece..." class="editor-content w-full prose dark:prose-invert prose-slate max-w-none text-lg min-h-[60vh] text-slate-800 dark:text-slate-200"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Feedback Toast -->
+    <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2 rounded-full text-xs font-bold opacity-0 transition-opacity pointer-events-none z-[100]">
+        Auto-saved
+    </div>
+
+    <script>
+        // State
+        let notes = JSON.parse(localStorage.getItem('notestream_split_data')) || [];
+        let activeNoteId = null;
+        let saveTimeout = null;
+        let draggedItemId = null;
+        let isDarkMode = localStorage.getItem('notestream_theme') === 'dark' || 
+                        (!localStorage.getItem('notestream_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+        // Elements
+        const appContainer = document.getElementById('appContainer');
+        const notesContainer = document.getElementById('notesContainer');
+        const noNoteSelected = document.getElementById('noNoteSelected');
+        const activeEditor = document.getElementById('activeEditor');
+        const noteTitleInput = document.getElementById('noteTitleInput');
+        const noteContentInput = document.getElementById('noteContentInput');
+        const editorWorkspace = document.getElementById('editorWorkspace');
+        const searchInput = document.getElementById('searchInput');
+        const pinActiveNoteBtn = document.getElementById('pinActiveNoteBtn');
+        const pinIconActive = document.getElementById('pinIconActive');
+        const themeToggle = document.getElementById('themeToggle');
+
+        function init() {
+            applyTheme();
+            renderNotes();
+            setupEvents();
+        }
+
+        function applyTheme() {
+            if (isDarkMode) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            localStorage.setItem('notestream_theme', isDarkMode ? 'dark' : 'light');
+        }
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            applyTheme();
+        }
+
+        function setupEvents() {
+            document.getElementById('addNoteBtn').onclick = createNewNote;
+            document.getElementById('backToListBtn').onclick = () => appContainer.classList.remove('show-editor');
+            document.getElementById('deleteAllBtn').onclick = clearAll;
+            document.getElementById('deleteActiveNoteBtn').onclick = deleteActiveNote;
+            pinActiveNoteBtn.onclick = togglePinActiveNote;
+            themeToggle.onclick = toggleTheme;
+
+            // WYSIWYG
+            window.formatDoc = (cmd, val = null) => {
+                document.execCommand(cmd, false, val);
+                noteContentInput.focus();
+                triggerAutoSave();
+            };
+
+            // Inputs
+            noteTitleInput.oninput = triggerAutoSave;
+            noteContentInput.oninput = triggerAutoSave;
+            searchInput.oninput = (e) => renderNotes(e.target.value);
+
+            // Colors
+            document.querySelectorAll('.color-opt').forEach(btn => {
+                btn.onclick = () => {
+                    const color = btn.dataset.color;
+                    updateActiveNoteColor(color);
+                };
+            });
+
+            // Drag and Drop Events
+            notesContainer.addEventListener('dragover', handleDragOver);
+            notesContainer.addEventListener('drop', handleDrop);
+        }
+
+        // Drag and Drop Logic
+        function handleDragStart(e) {
+            draggedItemId = e.target.getAttribute('data-id');
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            const items = notesContainer.querySelectorAll('.note-item');
+            items.forEach(item => item.classList.remove('drag-over'));
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            const draggingElement = document.querySelector('.dragging');
+            const target = e.target.closest('.note-item');
+            
+            if (target && target !== draggingElement) {
+                target.classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            const target = e.target.closest('.note-item');
+            if (target) {
+                target.classList.remove('drag-over');
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const target = e.target.closest('.note-item');
+            if (!target || !draggedItemId) return;
+
+            const targetId = target.getAttribute('data-id');
+            if (draggedItemId === targetId) return;
+
+            const fromIndex = notes.findIndex(n => n.id == draggedItemId);
+            const toIndex = notes.findIndex(n => n.id == targetId);
+
+            const [movedItem] = notes.splice(fromIndex, 1);
+            notes.splice(toIndex, 0, movedItem);
+
+            saveData();
+            renderNotes(searchInput.value);
+            draggedItemId = null;
+        }
+
+        function createNewNote() {
+            const newNote = {
+                id: Date.now(),
+                title: '',
+                content: '',
+                color: 'bg-white',
+                pinned: false,
+                updatedAt: new Date().toISOString()
+            };
+            notes.unshift(newNote);
+            saveData();
+            renderNotes();
+            openNote(newNote.id);
+        }
+
+        function openNote(id) {
+            activeNoteId = id;
+            const note = notes.find(n => n.id === id);
+            
+            noteTitleInput.value = note.title;
+            noteContentInput.innerHTML = note.content;
+            
+            const darkBg = note.color === 'bg-white' ? 'dark:bg-slate-950' : `dark:${note.color.replace('bg-', 'bg-')}/10`;
+            editorWorkspace.className = `flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar transition-colors ${note.color} ${darkBg}`;
+            
+            updatePinUI(note.pinned);
+            
+            noNoteSelected.classList.add('hidden');
+            activeEditor.classList.remove('hidden');
+            appContainer.classList.add('show-editor');
+
+            renderNotes();
+            if (window.innerWidth < 768) {
+                noteContentInput.focus();
+            }
+        }
+
+        function updatePinUI(isPinned) {
+            if (isPinned) {
+                pinIconActive.classList.add('text-blue-600', 'fill-blue-600', 'dark:text-blue-400', 'dark:fill-blue-400');
+                pinActiveNoteBtn.classList.add('bg-blue-50', 'dark:bg-blue-900/30');
+            } else {
+                pinIconActive.classList.remove('text-blue-600', 'fill-blue-600', 'dark:text-blue-400', 'dark:fill-blue-400');
+                pinActiveNoteBtn.classList.remove('bg-blue-50', 'dark:bg-blue-900/30');
+            }
+        }
+
+        function togglePinActiveNote() {
+            if (!activeNoteId) return;
+            const index = notes.findIndex(n => n.id === activeNoteId);
+            notes[index].pinned = !notes[index].pinned;
+            updatePinUI(notes[index].pinned);
+            saveData();
+            renderNotes(searchInput.value);
+            showToast(notes[index].pinned ? 'Pinned' : 'Unpinned');
+        }
+
+        function triggerAutoSave() {
+            if (saveTimeout) clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(saveCurrentNote, 800);
+        }
+
+        function saveCurrentNote() {
+            if (!activeNoteId) return;
+            const index = notes.findIndex(n => n.id === activeNoteId);
+            if (index === -1) return;
+
+            notes[index].title = noteTitleInput.value;
+            notes[index].content = noteContentInput.innerHTML;
+            notes[index].updatedAt = new Date().toISOString();
+
+            saveData();
+            renderNotes(searchInput.value);
+            showToast('Saved');
+        }
+
+        function updateActiveNoteColor(color) {
+            if (!activeNoteId) return;
+            const index = notes.findIndex(n => n.id === activeNoteId);
+            notes[index].color = color;
+            const darkBg = color === 'bg-white' ? 'dark:bg-slate-950' : `dark:${color}/10`;
+            editorWorkspace.className = `flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar transition-colors ${color} ${darkBg}`;
+            saveData();
+            renderNotes(searchInput.value);
+        }
+
+        function deleteActiveNote() {
+            if (!activeNoteId || !confirm('Delete this note?')) return;
+            notes = notes.filter(n => n.id !== activeNoteId);
+            activeNoteId = null;
+            saveData();
+            renderNotes();
+            activeEditor.classList.add('hidden');
+            noNoteSelected.classList.remove('hidden');
+            appContainer.classList.remove('show-editor');
+        }
+
+        function clearAll() {
+            if (confirm('Clear everything?')) {
+                notes = [];
+                activeNoteId = null;
+                saveData();
+                renderNotes();
+                activeEditor.classList.add('hidden');
+                noNoteSelected.classList.remove('hidden');
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem('notestream_split_data', JSON.stringify(notes));
+        }
+
+        function renderNotes(filter = '') {
+            const query = filter.toLowerCase();
+            const filtered = notes.filter(n => 
+                n.title.toLowerCase().includes(query) || 
+                n.content.toLowerCase().includes(query)
+            );
+
+            const sorted = [...filtered].sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return 0;
+            });
+
+            notesContainer.innerHTML = sorted.map(note => {
+                const isActive = activeNoteId === note.id;
+                return `
+                    <div data-id="${note.id}" 
+                         draggable="true"
+                         ondragstart="handleDragStart(event)"
+                         ondragend="handleDragEnd(event)"
+                         ondragleave="handleDragLeave(event)"
+                         onclick="openNote(${note.id})" 
+                         class="note-item p-4 rounded-2xl cursor-grab transition-all border-2 relative 
+                         ${isActive 
+                            ? 'bg-white dark:bg-slate-800 border-blue-500 dark:border-blue-500 shadow-sm' 
+                            : 'border-transparent hover:bg-white/50 dark:hover:bg-slate-800/50 bg-transparent text-slate-500 dark:text-slate-400'}">
+                        
+                        ${note.pinned ? `
+                            <div class="absolute top-4 right-4">
+                                <svg class="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 fill-blue-500 dark:fill-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.921-.755 1.688-1.54 1.118l-3.976-2.888a1 1 0 00-1.175 0l-3.976 2.888c-.784.57-1.838-.197-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                                </svg>
+                            </div>
+                        ` : ''}
+
+                        <h3 class="font-bold text-sm ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-slate-200'} line-clamp-1 pr-6 pointer-events-none">
+                            ${note.title || 'Untitled Note'}
+                        </h3>
+                        <div class="text-xs mt-1 line-clamp-2 opacity-60 prose-sm dark:prose-invert pointer-events-none">
+                            ${note.content || 'Empty note...'}
+                        </div>
+                        <div class="text-[10px] mt-2 opacity-40 uppercase font-semibold pointer-events-none">
+                            ${new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (sorted.length === 0) {
+                notesContainer.innerHTML = `<div class="p-10 text-center text-slate-400 dark:text-slate-600 text-xs">No notes found</div>`;
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.opacity = '1';
+            setTimeout(() => toast.style.opacity = '0', 1500);
+        }
+
+        init();
+    </script>
+</body>
+</html>
